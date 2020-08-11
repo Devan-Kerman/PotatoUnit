@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "potatounit",
+  "version": "${version}",
+  "name": "PotatoUnit",
+  "license": "MPL",
+  "icon": "assets/potatounit/icon.png",
+  "environment": "*",
+  "mixins": [
+    "potatounit.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.8.4+build.198",
+    "fabric": "*",
+    "minecraft": ">=1.15.2"
+  }
+}
