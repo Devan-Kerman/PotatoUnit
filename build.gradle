@@ -1,95 +1,52 @@
 plugins {
-    id 'fabric-loom' version '0.5-SNAPSHOT'
+    id 'java'
     id 'maven-publish'
 }
 
-sourceCompatibility = JavaVersion.VERSION_1_8
-targetCompatibility = JavaVersion.VERSION_1_8
-
-archivesBaseName = project.archives_base_name
-version = project.mod_version
-group = project.maven_group
-
-minecraft {
-}
-
-sourceSets {
-    testmod {
-        compileClasspath += main.compileClasspath
-        runtimeClasspath += main.runtimeClasspath
-    }
-}
+group 'net.devtech'
+version '1.0.2'
 
 repositories {
     mavenCentral()
+    maven { url 'https://maven.fabricmc.net/' }
 }
 
 dependencies {
-    minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
-    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-
-    testImplementation group: 'junit', name: 'junit', version: '4.12'
-    implementation group: 'junit', name: 'junit', version: '4.12'
-
-
-    afterEvaluate {
-        testImplementation project
-        //testmodCompile project("${it.name}:").sourceSets.testmod.output
-    }
+    implementation "net.fabricmc:fabric-loader:0.11.3"
+    implementation 'junit:junit:4.13.1'
 }
 
-processResources {
-    inputs.property "version", project.version
-
-    from(sourceSets.main.resources.srcDirs) {
-        include "fabric.mod.json"
-        expand "version": project.version
-    }
-
-    from(sourceSets.main.resources.srcDirs) {
-        exclude "fabric.mod.json"
-    }
+test {
+    useJUnitPlatform()
 }
 
-// ensure that the encoding is set to UTF-8, no matter what the system default is
-// this fixes some edge cases with special characters not displaying correctly
-// see http://yodaconditions.net/blog/fix-for-java-file-encoding-problems-with-gradle.html
-tasks.withType(JavaCompile) {
-    options.encoding = "UTF-8"
-}
-
-// Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
-// if it is present.
-// If you remove this task, sources will not be generated.
-task sourcesJar(type: Jar, dependsOn: classes) {
-    classifier = "sources"
+task sourcesJar(type: Jar) {
+    group = "astrarre"
+    archiveClassifier = "sources"
     from sourceSets.main.allSource
 }
 
-jar {
-    from "LICENSE"
-}
-
-// configure the maven publication
 publishing {
     publications {
         mavenJava(MavenPublication) {
-            // add all the jars that should be included when publishing to maven
-            artifact(remapJar) {
-                builtBy remapJar
+            artifactId = "$project.name"
+            // regular old implementation jar
+            artifact(jar) {
             }
+
+            // sources for ye normal folk
             artifact(sourcesJar) {
-                builtBy remapSourcesJar
             }
         }
     }
 
-    // select the repositories you want to publish to
     repositories {
-        // uncomment to publish to the local maven
-        // mavenLocal()
+        maven {
+            url project.hasProperty('maven_url') ? project.property('maven_url') : ""
+            credentials {
+                username project.hasProperty('maven_username') ? project.property('maven_username') : ""
+                password project.hasProperty('maven_password') ? project.property('maven_password') : ""
+            }
+        }
     }
 }

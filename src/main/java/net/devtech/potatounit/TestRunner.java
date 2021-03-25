@@ -1,12 +1,7 @@
-package net.devtech.potatounit.internals;
+package net.devtech.potatounit;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.IOException;
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,26 +9,69 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import org.junit.runner.notification.RunNotifier;
+import org.junit.runners.BlockJUnit4ClassRunner;
+import org.junit.runners.model.InitializationError;
 
 import net.fabricmc.api.EnvType;
 import net.fabricmc.loader.launch.knot.Knot;
 
-public final class Main {
-	public static void main(String[] args, Consumer<Knot> loader) throws Throwable {
-		String env = "server"; // desired environment, for config section selection
+public abstract class TestRunner extends BlockJUnit4ClassRunner {
+	protected final ClassLoader loader;
+
+	public TestRunner(Class<?> testClass, EnvType type) throws InitializationError, ReflectiveOperationException {
+		super(Class.forName(testClass.getName(), true, loader(type)));
+		this.loader = this.getTestClass().getJavaClass().getClassLoader();
+	}
+
+	protected static ClassLoader loader(EnvType type) throws ReflectiveOperationException {
+		System.setProperty("fabric.dli.env", type.name().toLowerCase(Locale.ROOT));
+		return main(new String[]{"nogui"});
+	}
+
+	@Override
+	public void run(RunNotifier notifier) {
+		try {
+			Thread thread = new Thread(() -> super.run(notifier));
+			thread.setContextClassLoader(this.loader);
+			thread.start();
+			thread.join();
+		} catch (InterruptedException e) {
+			throw new RuntimeException(e);
+		}
+	}
+
+	public static final class Server extends TestRunner {
+		public Server(Class<?> testClass) throws InitializationError, ReflectiveOperationException {
+			super(testClass, EnvType.SERVER);
+		}
+	}
+
+	public static final class Client extends TestRunner {
+		public Client(Class<?> testClass) throws InitializationError, ReflectiveOperationException {
+			super(testClass, EnvType.CLIENT);
+		}
+	}
+
+	public static ClassLoader main(String[] args) throws ReflectiveOperationException {
+		String env = System.clearProperty("fabric.dli.env"); // desired environment, for config section selection
+		String main = System.clearProperty("fabric.dli.main"); // main class to invoke afterwards
 		String config = System.clearProperty("fabric.dli.config"); // config file location
 		Path configFile;
 
-		if (config == null) {
-			warnNoop("missing fabric.dli.env or fabric.dli.config properties");
+		if (main == null) {
+			System.err.println("error: missing fabric.dli.main property, can't launch (copy your run args into the test run args)");
+			System.exit(1);
+		} else if (env == null || config == null) {
+			warnNoop("missing fabric.dli.env or fabric.dli.config properties  (copy your run args into the test run args)");
 		} else if (!Files.isRegularFile(configFile = Paths.get(decodeEscaped(config)))
-				|| !Files.isReadable(configFile)) {
-			warnNoop("missing or unreadable config file ("+configFile+")");
+		           || !Files.isReadable(configFile)) {
+			warnNoop("missing or unreadable config file ("+configFile+")  (copy your run args into the test run args)");
 		} else {
 			List<String> extraArgs = new ArrayList<>();
 			Map<String, String> extraProperties = new HashMap<>();
@@ -55,15 +93,13 @@ public final class Main {
 			}
 		}
 
-		String gameJarPath = System.getProperty("fabric.gameJarPath");
-		Constructor<Knot> ctor = Knot.class.getDeclaredConstructor(EnvType.class, File.class);
-		ctor.setAccessible(true);
-		Knot knot = ctor.newInstance(EnvType.SERVER, gameJarPath != null ? new File(gameJarPath) : null);
-		loader.accept(knot);
-		// invoke via method handle to minimize extra stack frames
-		Method method = Knot.class.getDeclaredMethod("init", String[].class);
-		method.setAccessible(true);
-		method.invoke(knot, (Object) args);
+		if(main.equals("net.fabricmc.loader.launch.knot.KnotClient") || main.equals("net.fabricmc.loader.launch.knot.KnotServer")) {
+			Knot knot = new Knot(EnvType.valueOf(env.toUpperCase(Locale.ROOT)), null);
+			Method init = Knot.class.getDeclaredMethod("init", String[].class);
+			init.setAccessible(true);
+			return (ClassLoader) init.invoke(knot, (Object) args);
+		} else
+			throw new UnsupportedOperationException(main);
 	}
 
 	private static void parseConfig(Path file, String env, List<String> extraArgs, Map<String, String> extraProperties) throws IOException {
@@ -77,15 +113,11 @@ public final class Main {
 			int state = STATE_NONE;
 
 			while ((line = reader.readLine()) != null) {
-				if (line.isEmpty()) {
-					continue;
-				}
+				if (line.isEmpty()) continue;
 
 				boolean indented = line.charAt(0) == ' ' || line.charAt(0) == '\t';
 				line = line.trim();
-				if (line.isEmpty()) {
-					continue;
-				}
+				if (line.isEmpty()) continue;
 
 				if (!indented) {
 					int offset;
@@ -139,9 +171,7 @@ public final class Main {
 	 * <p>Example: 'a@@20b' -> 'a b'
 	 */
 	private static String decodeEscaped(String s) {
-		if (s.indexOf("@@") < 0) {
-			return s;
-		}
+		if (s.indexOf("@@") < 0) return s;
 
 		Matcher matcher = Pattern.compile("@@([0-9a-fA-F]{1,4})").matcher(s);
 		StringBuilder ret = new StringBuilder(s.length());
